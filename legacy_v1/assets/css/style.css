@@ -1,0 +1,99 @@
+/* assets/css/style.css */
+
+/* --- Variables Globales (Fácil de cambiar para otra marca) --- */
+:root {
+    --primary-color: #E30613; /* Rojo Peirano */
+    --primary-dark: #b90510;
+    --secondary-color: #1e293b;
+    --bg-color: #f3f4f6;
+    --text-main: #333333;
+}
+
+/* --- Base --- */
+body {
+    font-family: 'Libre Franklin', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+}
+
+h1, h2, h3, h4, h5, .navbar-brand {
+    font-family: 'Red Hat Display', sans-serif;
+}
+
+/* --- Componentes Personalizados --- */
+
+/* Botones */
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-dark);
+    border-color: var(--primary-dark);
+    transform: translateY(-1px);
+}
+
+/* Tarjetas */
+.card {
+    border: none;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease;
+}
+
+.card:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* Utilidades de Texto */
+.text-primary {
+    color: var(--primary-color) !important;
+}
+
+/* --- Animaciones --- */
+.fade-in {
+    animation: fadeIn 0.5s ease-out forwards;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* --- Wizard (Pasos de Reserva) --- */
+.step-indicator {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 2rem;
+}
+
+.step-dot {
+    width: 35px;
+    height: 35px;
+    background: #e5e7eb;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: #6b7280;
+    margin: 0 10px;
+}
+
+.step-dot.active {
+    background: var(--primary-color);
+    color: white;
+    box-shadow: 0 0 0 4px rgba(227, 6, 19, 0.2);
+}
+
+/* --- Tablas Responsivas --- */
+.table-hover tbody tr:hover {
+    background-color: rgba(227, 6, 19, 0.03);
+}
