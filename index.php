@@ -13,9 +13,10 @@ require_once __DIR__ . '/config/branding.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/Utils.php';
 
-// If already logged in, redirect to dashboard
+// If already logged in, redirect based on role
 if (Auth::check()) {
-    Utils::redirect('dashboard.php');
+    $role = $_SESSION['user']['role'] ?? 'provider';
+    Utils::redirect(in_array($role, ['admin', 'operator']) ? 'admin.php' : 'reservar.php');
 }
 
 $error = '';
@@ -32,7 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $result = $auth->login($cuit, $password);
 
         if ($result === true) {
-            Utils::redirect('dashboard.php');
+            $role = $_SESSION['user']['role'] ?? 'provider';
+            Utils::redirect(in_array($role, ['admin', 'operator']) ? 'admin.php' : 'reservar.php');
         } else {
             $error = $result;
         }
@@ -85,11 +87,6 @@ require_once __DIR__ . '/templates/layouts/header.php';
             <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Ingresar</button>
         </form>
 
-        <div class="text-center mt-4">
-            <a href="register.php" class="text-decoration-none text-muted small">
-                ¿No tenés cuenta? Registrate acá
-            </a>
-        </div>
     </div>
 </div>
 

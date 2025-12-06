@@ -302,7 +302,7 @@ require_once __DIR__ . '/templates/layouts/nav.php';
                 <i class="bi bi-check-circle-fill text-success display-1"></i>
                 <h2 class="mt-3 fw-bold">¡Turno Confirmado!</h2>
                 <p class="text-muted lead"><?php echo htmlspecialchars($success); ?></p>
-                <a href="dashboard.php" class="btn btn-primary btn-lg mt-4 px-5 rounded-pill">
+                <a href="reservar.php" class="btn btn-primary btn-lg mt-4 px-5 rounded-pill">
                     Ver Mis Turnos
                 </a>
             </div>

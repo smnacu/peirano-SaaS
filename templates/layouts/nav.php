@@ -42,7 +42,7 @@ $user = Auth::user();
                     <?php if ($user['role'] === 'client' || $user['role'] === 'provider'): ?>
                         <!-- ROLE: PROVIDER/CLIENT -->
                         <li class="nav-item">
-                            <a class="nav-link px-3" href="dashboard.php">
+                            <a class="nav-link px-3" href="reservar.php">
                                 <i class="bi bi-calendar-check me-1"></i> Mis Turnos
                             </a>
                         </li>
