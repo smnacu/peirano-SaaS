@@ -10,11 +10,10 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/config/config.php';
-require_once __DIR__ . '/src/Database.php';
 require_once __DIR__ . '/src/Auth.php';
-require_once __DIR__ . '/src/Services/Calendar/CalendarFactory.php';
+require_once __DIR__ . '/src/Services/ReservationService.php';
 
-use Services\Calendar\CalendarFactory;
+use Services\ReservationService;
 
 // JSON Response
 header('Content-Type: application/json');
@@ -42,48 +41,14 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
 }
 
 // =====================================================
-// SLOT CONFIGURATION
-// These could come from branch settings in the future
+// GET TIME SLOTS FROM SERVICE
 // =====================================================
 
-$startHour = 8;   // 08:00
-$endHour = 17;    // 17:00
-$interval = 30;   // minutes per slot
-
-// =====================================================
-// GENERATE TIME SLOTS
-// =====================================================
-
-$slots = [];
-$currentTime = strtotime("{$date} {$startHour}:00:00");
-$endTime = strtotime("{$date} {$endHour}:00:00");
-
-// Get calendar instance via Factory (uses CALENDAR_DRIVER from .env)
-$calendar = CalendarFactory::create();
-
-while ($currentTime < $endTime) {
-    $timeStr = date('H:i', $currentTime);
-    
-    // Calculate slot boundaries
-    $slotStart = date('Y-m-d H:i:s', $currentTime);
-    $slotEnd = date('Y-m-d H:i:s', $currentTime + ($interval * 60));
-    
-    // Check availability using the configured calendar strategy
-    $available = true;
-    try {
-        $available = $calendar->checkAvailability($slotStart, $slotEnd, $branchId);
-    } catch (Exception $e) {
-        // On API error, mark as unavailable for safety
-        error_log("api_check_slots error: " . $e->getMessage());
-        $available = false;
-    }
-
-    $slots[] = [
-        'time' => $timeStr,
-        'available' => $available
-    ];
-    
-    $currentTime += ($interval * 60);
+try {
+    $service = new ReservationService();
+    $slots = $service->getAvailableSlots($date, $branchId);
+    echo json_encode($slots);
+} catch (Exception $e) {
+    error_log("api_check_slots error: " . $e->getMessage());
+    echo json_encode(['error' => 'Internal Server Error']);
 }
-
-echo json_encode($slots);
