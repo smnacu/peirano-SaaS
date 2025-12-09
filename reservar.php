@@ -17,9 +17,9 @@ require_once __DIR__ . '/config/branding.php';
 require_once __DIR__ . '/src/Database.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/Utils.php';
-require_once __DIR__ . '/src/Services/Calendar/CalendarFactory.php';
+require_once __DIR__ . '/src/Services/ReservationService.php';
 
-use Services\Calendar\CalendarFactory;
+use Services\ReservationService;
 
 // =====================================================
 // AUTHENTICATION
@@ -98,178 +98,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Utils::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
         $error = "Error de seguridad (CSRF). Por favor recargue la página.";
     } else {
-        // Collect Form Data
-        $branchId = (int) ($_POST['branch_id'] ?? 0);
-        $date = $_POST['date'] ?? '';
-        $time = $_POST['time'] ?? '';
-        $vehicleType = $_POST['vehicle_type'] ?? '';
-        $quantity = (int) ($_POST['quantity'] ?? 0);
-        $needsForklift = isset($_POST['needs_forklift']) ? 1 : 0;
-        $needsHelper = isset($_POST['needs_helper']) ? 1 : 0;
-        $observations = trim($_POST['observations'] ?? '');
-        
-        // Driver & Helper Info
-        $driverName = trim($_POST['driver_name'] ?? '');
-        $driverDni = trim($_POST['driver_dni'] ?? '');
-        $helperName = trim($_POST['helper_name'] ?? '');
-        $helperDni = trim($_POST['helper_dni'] ?? '');
+        try {
+            $reservationService = new ReservationService();
+            
+            // Prepare data for service
+            $data = [
+                'branch_id' => $_POST['branch_id'] ?? 0,
+                'date' => $_POST['date'] ?? '',
+                'time' => $_POST['time'] ?? '',
+                'vehicle_type' => $_POST['vehicle_type'] ?? '',
+                'quantity' => (int) ($_POST['quantity'] ?? 0),
+                'needs_forklift' => isset($_POST['needs_forklift']),
+                'needs_helper' => isset($_POST['needs_helper']),
+                'observations' => trim($_POST['observations'] ?? ''),
+                'driver_name' => trim($_POST['driver_name'] ?? ''),
+                'driver_dni' => trim($_POST['driver_dni'] ?? ''),
+                'helper_name' => trim($_POST['helper_name'] ?? ''),
+                'helper_dni' => trim($_POST['helper_dni'] ?? '')
+            ];
 
-        // =====================================================
-        // VALIDATION
-        // =====================================================
-        
-        if (empty($branchId) || empty($date) || empty($time) || empty($vehicleType) || $quantity < 1) {
-            $error = "⚠️ Faltan datos obligatorios. Por favor revisá que hayas completado todo.";
-        } elseif (empty($driverName) || empty($driverDni)) {
-            $error = "⚠️ Los datos del chofer son obligatorios.";
-        } elseif ($needsHelper && (empty($helperName) || empty($helperDni))) {
-            $error = "⚠️ Marcaste que necesitás peón, pero faltan sus datos.";
-        } else {
-            // =====================================================
-            // CALCULATE TIMES
-            // =====================================================
+            // Create Reservation
+            $reservationService->createReservation($data, $_SESSION['user']);
             
-            $startTime = $date . ' ' . $time . ':00';
-            
-            // Default duration based on vehicle type
-            $userDuration = 60; // TODO: Get from user profile if customized
-            
-            if ($userDuration < 15) {
-                $blockMinutes = $userDuration;
-                $realMinutes = $userDuration;
-            } else {
-                // Shorter blocks for smaller vehicles
-                if ($vehicleType === 'Utilitario') {
-                    $blockMinutes = 30;
-                    $realMinutes = 25; // 5 min buffer
-                } else {
-                    $blockMinutes = 60;
-                    $realMinutes = 55; // 5 min buffer
-                }
-                
-                // Custom duration overrides defaults
-                if ($userDuration !== 60) {
-                    $blockMinutes = $userDuration;
-                    $realMinutes = $userDuration - 5;
+            // Get branch name for success message
+            $branchName = 'Sucursal';
+            foreach ($branches as $b) {
+                if ((int) $b['id'] === (int)$data['branch_id']) {
+                    $branchName = $b['name'];
+                    break;
                 }
             }
 
-            $checkEndTime = date('Y-m-d H:i:s', strtotime($startTime) + ($blockMinutes * 60));
-            $eventEndTime = date('Y-m-d H:i:s', strtotime($startTime) + ($realMinutes * 60));
+            // Success Redirect
+            $formattedDate = date('d/m', strtotime($data['date']));
+            $_SESSION['reservation_success'] = "¡Listo! Te esperamos el {$formattedDate} a las {$data['time']}hs en {$branchName}.";
 
-            // =====================================================
-            // CALENDAR AVAILABILITY CHECK (Strategy Pattern)
-            // =====================================================
-            
-            $calendar = CalendarFactory::create();
-            $isAvailable = true;
+            header("Location: reservar.php?status=success");
+            exit;
 
-            if ($blockMinutes >= 15) {
-                try {
-                    $isAvailable = $calendar->checkAvailability($startTime, $checkEndTime, $branchId);
-                } catch (Exception $e) {
-                    $error = "Error al verificar disponibilidad: " . $e->getMessage();
-                    $isAvailable = false;
-                }
-            }
-
-            if (!$isAvailable && empty($error)) {
-                $error = "¡Ups! Ese horario ya no está disponible. Por favor elegí otro.";
-            } elseif (empty($error)) {
-                // =====================================================
-                // SAVE APPOINTMENT
-                // =====================================================
-                
-                try {
-                    // Get branch name for display
-                    $branchName = 'Sucursal';
-                    foreach ($branches as $b) {
-                        if ((int) $b['id'] === $branchId) {
-                            $branchName = $b['name'];
-                            break;
-                        }
-                    }
-
-                    // Insert into database
-                    $sql = "INSERT INTO appointments 
-                            (user_id, branch_id, start_time, end_time, vehicle_type, 
-                             needs_forklift, needs_helper, quantity, observations, 
-                             driver_name, driver_dni, helper_name, helper_dni) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-                    
-                    $stmt = $pdo->prepare($sql);
-                    $stmt->execute([
-                        $_SESSION['user']['id'],
-                        $branchId,
-                        $startTime,
-                        $eventEndTime,
-                        $vehicleType,
-                        $needsForklift,
-                        $needsHelper,
-                        $quantity,
-                        $observations,
-                        $driverName,
-                        $driverDni,
-                        $helperName,
-                        $helperDni
-                    ]);
-                    
-                    $appointmentId = (int) $pdo->lastInsertId();
-
-                    // =====================================================
-                    // CREATE CALENDAR EVENT (Strategy Pattern)
-                    // =====================================================
-                    
-                    $companyName = $_SESSION['user']['name'];
-                    $subject = "Turno ({$branchName}): {$companyName}";
-                    
-                    $description = "Proveedor: {$companyName}\n";
-                    $description .= "Vehículo: {$vehicleType}\n";
-                    $description .= "Bultos: {$quantity}\n";
-                    $description .= "Sucursal: {$branchName}\n";
-                    $description .= "Chofer: {$driverName} (DNI: {$driverDni})";
-                    
-                    if ($needsHelper) {
-                        $description .= "\nPeón: {$helperName} (DNI: {$helperDni})";
-                    }
-                    
-                    if ($needsForklift) {
-                        $description .= "\n⚠️ Requiere Autoelevador";
-                    }
-
-                    $eventId = $calendar->createEvent(
-                        $subject,
-                        $startTime,
-                        $eventEndTime,
-                        $description,
-                        $branchName
-                    );
-
-                    // Save calendar event ID
-                    if ($eventId) {
-                        $update = $pdo->prepare("UPDATE appointments SET outlook_event_id = ? WHERE id = ?");
-                        $update->execute([$eventId, $appointmentId]);
-                    }
-
-                    // =====================================================
-                    // SUCCESS - REDIRECT (PRG Pattern)
-                    // =====================================================
-                    
-                    $formattedDate = date('d/m', strtotime($date));
-                    $_SESSION['reservation_success'] = "¡Listo! Te esperamos el {$formattedDate} a las {$time}hs en {$branchName}.";
-                    
-                    header("Location: reservar.php?status=success");
-                    exit;
-
-                } catch (PDOException $e) {
-                    $error = "Error técnico al guardar la reserva.";
-                    
-                    if (str_contains($e->getMessage(), "doesn't exist")) {
-                        $error .= " (Posiblemente falte actualizar la base de datos).";
-                    }
-                    
-                    error_log("Reservar DB Error: " . $e->getMessage());
-                }
+        } catch (Exception $e) {
+            $error = $e->getMessage();
+            // Add more specific error handling if needed
+            if (str_contains($e->getMessage(), "doesn't exist")) {
+                 $error .= " (Posiblemente falte actualizar la base de datos).";
             }
         }
     }
