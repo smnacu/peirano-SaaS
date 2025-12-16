@@ -25,10 +25,24 @@ class OutlookCalendar implements CalendarInterface
 
     public function __construct()
     {
-        $this->tenantId = defined('MS_TENANT_ID') ? MS_TENANT_ID : '';
-        $this->clientId = defined('MS_CLIENT_ID') ? MS_CLIENT_ID : '';
-        $this->clientSecret = defined('MS_CLIENT_SECRET') ? MS_CLIENT_SECRET : '';
-        $this->userId = defined('MS_CALENDAR_USER') ? MS_CALENDAR_USER : '';
+        // Try to load from IntegrationService
+        $config = [];
+        if (class_exists('IntegrationService')) {
+             $service = new \IntegrationService();
+             $config = $service->getIntegrationConfig();
+        } elseif (file_exists(__DIR__ . '/../../Services/IntegrationService.php')) {
+             require_once __DIR__ . '/../../Services/IntegrationService.php';
+             $service = new \IntegrationService();
+             $config = $service->getIntegrationConfig();
+        }
+
+        $this->tenantId = $config['ms_tenant_id'] ?? (defined('MS_TENANT_ID') ? MS_TENANT_ID : 'common');
+        $this->clientId = $config['ms_client_id'] ?? (defined('MS_CLIENT_ID') ? MS_CLIENT_ID : '');
+        $this->clientSecret = $config['ms_client_secret'] ?? (defined('MS_CLIENT_SECRET') ? MS_CLIENT_SECRET : '');
+        // For now, userId is not in the form, assumes same as auth or configured elsewhere. 
+        // If "internal credentials" means the system acts as one specific user, we need that ID too.
+        // I'll leave defined() fallback for user_id or add it to setup later if needed.
+        $this->userId =  defined('MS_CALENDAR_USER') ? MS_CALENDAR_USER : ''; 
         $this->timezone = 'America/Argentina/Buenos_Aires';
     }
 

@@ -33,11 +33,35 @@ class CalendarFactory
      */
     public static function create(): CalendarInterface
     {
-        $driver = defined('CALENDAR_DRIVER') ? strtolower(CALENDAR_DRIVER) : 'local';
+        // Try to get from DB first
+        try {
+            if (!class_exists('IntegrationService')) {
+                $servicePath = __DIR__ . '/../../IntegrationService.php'; // Adjust path based on structure
+                if (file_exists($servicePath)) {
+                    require_once $servicePath;
+                } else {
+                     // Fallback if file not found (e.g. simple install)
+                     require_once __DIR__ . '/../../Services/IntegrationService.php';
+                }
+            }
+            
+            $service = new \IntegrationService();
+            $config = $service->getIntegrationConfig();
+            $driver = $config['provider'] ?? 'local';
+            
+            // Map 'microsoft_personal'/'microsoft_graph' to 'outlook' for now, 
+            // until we have specific drivers or the driver handles both logic internally
+            if (str_starts_with($driver, 'microsoft')) {
+                $driver = 'outlook';
+            }
+        } catch (\Exception $e) {
+            // Fallback to config constant
+             $driver = defined('CALENDAR_DRIVER') ? strtolower(CALENDAR_DRIVER) : 'local';
+        }
 
-        // Use match expression (PHP 8.0+)
         return match ($driver) {
             'outlook' => new OutlookCalendar(),
+            'google' => new GoogleCalendar(), // Need to implement this if it doesn't exist
             'local'   => new LocalCalendar(),
             default   => new LocalCalendar()
         };

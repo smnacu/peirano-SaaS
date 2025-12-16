@@ -137,6 +137,13 @@ require_once __DIR__ . '/templates/layouts/nav.php';
         <div class="tab-pane fade show active" id="turnos" role="tabpanel">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h4 class="fw-bold">Agenda de Turnos</h4>
+                <div class="d-flex gap-2">
+                    <?php if ($userRole === 'admin'): ?>
+                        <a href="setup_integrations.php" class="btn btn-outline-info" title="Configurar Integraciones">
+                            <i class="bi bi-gear-fill"></i> <span class="d-none d-md-inline">Configurar</span>
+                        </a>
+                    <?php endif; ?>
+                </div>
                 <form class="d-flex gap-2">
                     <?php if ($userRole === 'admin'): ?>
                         <select name="branch_id" class="form-select bg-dark text-white border-secondary" style="width: auto;">

@@ -23,7 +23,7 @@ $GLOBALS['BRAND'] = [
     // Logo
     'logo_url'      => env('LOGO_URL', 'assets/img/logo.png'),
     'logo_fallback' => env('LOGO_FALLBACK', 'https://via.placeholder.com/150x50?text=LOGO'),
-    'logo_height'   => '35', // px
+    'logo_height'   => '50', // px
     
     // Colors (CSS format)
     'primary'       => env('PRIMARY_COLOR', '#3B82F6'),
