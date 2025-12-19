@@ -42,19 +42,57 @@ class Auth {
         if ($user && password_verify($password, $user['password_hash'])) {
             // Validaciones de negocio
             if ($user['status'] === 'rejected') return "Cuenta bloqueada.";
-            if ($user['role'] !== 'admin' && !$user['email_verified']) return "Email no verificado.";
+            
+            // Check verification if column exists (backward compatibility or future)
+            if ($user['role'] !== 'admin' && isset($user['email_verified']) && !$user['email_verified']) {
+                return "Email no verificado.";
+            }
 
-            // Guardar datos mínimos en sesión
-            $_SESSION['user'] = [
-                'id' => $user['id'],
-                'name' => $user['company_name'],
-                'cuit' => $user['cuit'],
-                'role' => $user['role'],
-                'branch_id' => $user['branch_id']
-            ];
+            // 2FA CHECK
+            if (!empty($user['two_factor_enabled']) && $user['two_factor_enabled'] == 1) {
+                // Return special status to trigger 2FA step in controller
+                $_SESSION['2fa_pending_user_id'] = $user['id'];
+                return "2fa_required";
+            }
+
+            // Guardar datos mínimos en sesión (Login Exitoso directo)
+            $this->setSession($user);
             return true;
         }
         return "CUIT o contraseña incorrectos.";
+    }
+
+    public function verify2FA($code) {
+        if (!isset($_SESSION['2fa_pending_user_id'])) return false;
+        
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+        $stmt->execute([$_SESSION['2fa_pending_user_id']]);
+        $user = $stmt->fetch();
+
+        if ($user) {
+            require_once __DIR__ . '/Services/TwoFactorService.php';
+            $tfa = new TwoFactorService();
+            if ($tfa->verifyCode($user['two_factor_secret'], $code)) {
+                // Success
+                $this->setSession($user);
+                unset($_SESSION['2fa_pending_user_id']);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function setSession($user) {
+        $_SESSION['user'] = [
+            'id' => $user['id'],
+            'name' => $user['company_name'],
+            'cuit' => $user['cuit'],
+            'email' => $user['email'] ?? null,
+            'role' => $user['role'],
+            'branch_id' => $user['branch_id'],
+            'default_duration' => $user['default_duration'] ?? null
+        ];
     }
 
     public function logout() {

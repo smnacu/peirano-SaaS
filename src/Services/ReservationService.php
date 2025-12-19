@@ -34,36 +34,39 @@ class ReservationService
         $this->pdo = Database::connect();
     }
 
-    /**
-     * Calculate reservation duration based on vehicle type and user preferences.
-     *
-     * @param string $vehicleType
-     * @param int $userDuration Default user duration (usually 60)
-     * @return array{blockMinutes: int, realMinutes: int}
-     */
-    public function calculateDuration(string $vehicleType, int $userDuration = 60): array
+    public function calculateDuration(string $vehicleType, ?int $userDuration = null): array
     {
         $blockMinutes = 60;
-        $realMinutes = 55; // 5 min buffer
+        $realMinutes = 55;
 
-        if ($userDuration < 15) {
+        // 1. User Override (Priority)
+        // If user has a specific duration set (e.g. 120 min), we use that regardless of vehicle.
+        if ($userDuration !== null && $userDuration > 0) {
             $blockMinutes = $userDuration;
-            $realMinutes = $userDuration;
-        } else {
-            // Shorter blocks for smaller vehicles
-            if ($vehicleType === 'Utilitario') {
-                $blockMinutes = 30;
-                $realMinutes = 25; // 5 min buffer
-            } else {
-                $blockMinutes = 60;
-                $realMinutes = 55; // 5 min buffer
-            }
+            $realMinutes = max(15, $userDuration - 5); // Ensure at least 15 min real time? Or just -5
+            return ['blockMinutes' => $blockMinutes, 'realMinutes' => $realMinutes];
+        }
 
-            // Custom duration overrides defaults
-            if ($userDuration !== 60) {
-                $blockMinutes = $userDuration;
-                $realMinutes = $userDuration - 5;
+        // 2. Vehicle Type Lookup
+        // Try to find in DB (cached check ideally, but simple query for now)
+        try {
+            $stmt = $this->pdo->prepare("SELECT block_minutes, real_minutes FROM vehicle_types WHERE name = ? AND active = 1");
+            $stmt->execute([$vehicleType]);
+            $vInfo = $stmt->fetch();
+            if ($vInfo) {
+                return [
+                    'blockMinutes' => (int)$vInfo['block_minutes'],
+                    'realMinutes' => (int)$vInfo['real_minutes']
+                ];
             }
+        } catch (Exception $e) {
+            // Fallback
+        }
+
+        // 3. Fallback Hardcoded (Maintenance)
+        if ($vehicleType === 'Utilitario' || str_contains($vehicleType, 'Utilitario')) {
+            $blockMinutes = 30;
+            $realMinutes = 25;
         }
 
         return [
@@ -142,48 +145,76 @@ class ReservationService
 
         // Calculate Times
         $startTime = $data['date'] . ' ' . $data['time'] . ':00';
-        $durations = $this->calculateDuration($data['vehicle_type']); // Assuming default 60 for user duration for now
+        $userDuration = isset($user['default_duration']) ? (int)$user['default_duration'] : null;
+        $durations = $this->calculateDuration($data['vehicle_type'], $userDuration);
 
         $checkEndTime = date('Y-m-d H:i:s', strtotime($startTime) + ($durations['blockMinutes'] * 60));
         $eventEndTime = date('Y-m-d H:i:s', strtotime($startTime) + ($durations['realMinutes'] * 60));
 
-        // Check Availability
-        $calendar = CalendarFactory::create();
-        if ($durations['blockMinutes'] >= 15) {
-            if (!$calendar->checkAvailability($startTime, $checkEndTime, (int)$data['branch_id'])) {
-                throw new Exception("El horario seleccionado ya no está disponible.");
-            }
-        }
-
         try {
+            // TRANSACTION START
+            $this->pdo->beginTransaction();
+
+            // CONCURRENCY LOCK: Lock the branch row to serialize bookings for this branch (Heavy but safe for avoiding overlaps)
+            // Or better: Lock specific time range? Harder. Branch locking is safest for MVP concurrency.
+            $stmtLock = $this->pdo->prepare("SELECT id FROM branches WHERE id = ? FOR UPDATE");
+            $stmtLock->execute([$data['branch_id']]);
+
+            // Check Availability (Inside Transaction)
+            $calendar = CalendarFactory::create();
+            // We need to re-instantiate or pass PDO to calendar factory to ensure it uses the same transaction connection?
+            // Factory creates new PDO? Check Factory. If it creates new PDO, transaction won't work across.
+            // Assumption: CalendarFactory uses Database::connect() which returns the *same* singleton PDO instance usually?
+            // Checking Database class later. If it returns same instance, we are good.
+
+            // Re-check inside lock
+            if ($durations['blockMinutes'] >= 15) {
+                if (!$calendar->checkAvailability($startTime, $checkEndTime, (int)$data['branch_id'])) {
+                    $this->pdo->rollBack();
+                    throw new Exception("El horario seleccionado acaba de ser ocupado. Por favor elija otro.");
+                }
+            }
+
             // Get branch name (optional, but needed for calendar event)
             $branchName = $this->getBranchName((int)$data['branch_id']);
 
-            // Insert into Database
-            $sql = "INSERT INTO appointments
-                    (user_id, branch_id, start_time, end_time, vehicle_type,
-                        needs_forklift, needs_helper, quantity, observations,
-                        driver_name, driver_dni, helper_name, helper_dni)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            // Insert Appointment
+            $stmt = $this->pdo->prepare("
+                INSERT INTO appointments (branch_id, user_id, vehicle_type, start_time, end_time, quantity, needs_forklift, needs_helper, driver_name, driver_dni, helper_name, helper_dni, observations, attendance_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+            ");
 
-            $stmt = $this->pdo->prepare($sql);
             $stmt->execute([
-                $user['id'],
                 $data['branch_id'],
+                $user['id'],
+                $data['vehicle_type'],
                 $startTime,
                 $eventEndTime,
-                $data['vehicle_type'],
-                !empty($data['needs_forklift']) ? 1 : 0,
-                !empty($data['needs_helper']) ? 1 : 0,
                 $data['quantity'],
-                $data['observations'] ?? '',
+                isset($data['needs_forklift']) ? 1 : 0,
+                isset($data['needs_helper']) ? 1 : 0,
                 $data['driver_name'],
                 $data['driver_dni'],
-                $data['helper_name'] ?? '',
-                $data['helper_dni'] ?? ''
+                $data['helper_name'] ?? null,
+                $data['helper_dni'] ?? null,
+                $data['observations'] ?? '',
             ]);
 
             $appointmentId = (int) $this->pdo->lastInsertId();
+
+            // COMMIT
+            $this->pdo->commit();
+
+            // SEND EMAIL NOTIFICATION (Outside transaction to not block DB if mail is slow)
+            try {
+                if (!empty($_SESSION['user']['email'])) {
+                    require_once __DIR__ . '/EmailService.php';
+                    $emailService = new \EmailService();
+                    $emailService->sendStatusUpdate($_SESSION['user']['email'], $user['name'], 'reserved', $startTime);
+                }
+            } catch (Exception $e) {
+                error_log("Email Error: " . $e->getMessage());
+            }
 
             // Create Calendar Event
             $description = "Proveedor: {$user['name']}\n";

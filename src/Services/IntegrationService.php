@@ -48,6 +48,13 @@ class IntegrationService {
             'ms_client_secret' => $this->getSetting('ms_client_secret'),
             'ms_tenant_id' => $this->getSetting('ms_tenant_id'),
             'ms_refresh_token' => $this->getSetting('ms_refresh_token'),
+            // Email Config
+            'smtp_enabled' => $this->getSetting('smtp_enabled', '0'),
+            'smtp_host' => $this->getSetting('smtp_host', 'smtp.gmail.com'),
+            'smtp_port' => $this->getSetting('smtp_port', '587'),
+            'smtp_user' => $this->getSetting('smtp_user', ''),
+            'smtp_pass' => $this->getSetting('smtp_pass', ''),
+            'smtp_from_name' => $this->getSetting('smtp_from_name', 'Peirano Turnos'),
         ];
     }
     
@@ -61,6 +68,15 @@ class IntegrationService {
         if (isset($data['ms_client_id'])) $this->setSetting('ms_client_id', $data['ms_client_id']);
         if (isset($data['ms_client_secret'])) $this->setSetting('ms_client_secret', $data['ms_client_secret']);
         if (isset($data['ms_tenant_id'])) $this->setSetting('ms_tenant_id', $data['ms_tenant_id']);
+    }
+
+    public function saveEmailConfig(array $data) {
+        $this->setSetting('smtp_enabled', isset($data['smtp_enabled']) ? '1' : '0');
+        $this->setSetting('smtp_host', $data['smtp_host']);
+        $this->setSetting('smtp_port', $data['smtp_port']);
+        $this->setSetting('smtp_user', $data['smtp_user']);
+        $this->setSetting('smtp_pass', $data['smtp_pass']); // In production should be encrypted
+        $this->setSetting('smtp_from_name', $data['smtp_from_name']);
     }
 }
 ?>

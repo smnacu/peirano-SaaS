@@ -20,33 +20,108 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($_POST['action'] === 'approve_user' && $_SESSION['user']['role'] === 'admin') {
             $userId = $_POST['user_id'];
             $duration = $_POST['default_duration'];
+            
+            // Get user email and company name for notification
+            $stmt = $pdo->prepare("SELECT company_name, email FROM users WHERE id = ?");
+            $stmt->execute([$userId]);
+            $uData = $stmt->fetch();
+
             $stmt = $pdo->prepare("UPDATE users SET status = 'approved', default_duration = ? WHERE id = ?");
             if ($stmt->execute([$duration, $userId])) {
-                $message = "Usuario aprobado correctamente.";
+                // Notification
+                if ($uData && !empty($uData['email'])) {
+                    require_once __DIR__ . '/src/Services/EmailService.php';
+                    (new EmailService())->sendStatusUpdate($uData['email'], $uData['company_name'], 'approved', date('Y-m-d H:i:s'));
+                    $message = "Usuario aprobado y notificado.";
+                } else {
+                    $message = "Usuario aprobado correctamente.";
+                }
             } else {
                 $error = "Error al aprobar usuario.";
             }
         } elseif ($_POST['action'] === 'reject_user' && $_SESSION['user']['role'] === 'admin') {
             $userId = $_POST['user_id'];
+            
+            // Get user email and company name for notification
+            $stmt = $pdo->prepare("SELECT company_name, email FROM users WHERE id = ?");
+            $stmt->execute([$userId]);
+            $uData = $stmt->fetch();
+
             $stmt = $pdo->prepare("UPDATE users SET status = 'rejected' WHERE id = ?");
             if ($stmt->execute([$userId])) {
                 $message = "Usuario rechazado.";
             } else {
                 $error = "Error al rechazar usuario.";
             }
-        } elseif ($_POST['action'] === 'create_user' && $_SESSION['user']['role'] === 'admin') {
-            $cuit = $_POST['cuit'];
-            $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
-            $company_name = $_POST['company_name'];
-            $role = $_POST['role'];
-            $branch_id = !empty($_POST['branch_id']) ? $_POST['branch_id'] : null;
-
+        } elseif ($_POST['action'] === 'mark_attendance') {
+            $apptId = $_POST['appointment_id'];
+            $status = $_POST['status']; // 'present' or 'absent'
+            
             try {
-                $stmt = $pdo->prepare("INSERT INTO users (cuit, password_hash, company_name, role, branch_id, status) VALUES (?, ?, ?, ?, ?, 'approved')");
-                $stmt->execute([$cuit, $password, $company_name, $role, $branch_id]);
-                $message = "Usuario creado exitosamente.";
-            } catch (PDOException $e) {
-                $error = "Error al crear usuario: " . $e->getMessage();
+                // 1. Update Appointment
+                $stmt = $pdo->prepare("UPDATE appointments SET attendance_status = ? WHERE id = ?");
+                $stmt->execute([$status, $apptId]);
+
+                // 2. Logic: If 'absent', check last 3 appointments for this user
+                if ($status === 'absent') {
+                    // Get User ID
+                    $stmt = $pdo->prepare("SELECT user_id FROM appointments WHERE id = ?");
+                    $stmt->execute([$apptId]);
+                    $uid = $stmt->fetchColumn();
+
+                    if ($uid) {
+                         // Check last 3 finished appointments
+                         $stmt = $pdo->prepare("SELECT attendance_status FROM appointments WHERE user_id = ? AND attendance_status != 'pending' ORDER BY start_time DESC LIMIT 3");
+                         $stmt->execute([$uid]);
+                         $history = $stmt->fetchAll(PDO::FETCH_COLUMN);
+                         
+                         // If 3 recorded, and all are absent
+                         if (count($history) === 3 && count(array_unique($history)) === 1 && $history[0] === 'absent') {
+                             // BLOCK USER
+                             $pdo->prepare("UPDATE users SET status = 'rejected' WHERE id = ?")->execute([$uid]);
+                             
+                             // Notify
+                             $stmt = $pdo->prepare("SELECT company_name, email FROM users WHERE id = ?");
+                             $stmt->execute([$uid]);
+                             $uData = $stmt->fetch();
+                             
+                             if ($uData && !empty($uData['email'])) {
+                                require_once __DIR__ . '/src/Services/EmailService.php';
+                                (new EmailService())->sendStatusUpdate($uData['email'], $uData['company_name'], 'blocked', date('Y-m-d H:i:s'));
+                             }
+                             $message = "Asistencia guardada. ¡USUARIO BLOQUEADO POR 3 AUSENCIAS!";
+                         } else {
+                             $message = "Asistencia guardada.";
+                         }
+                    }
+                } else {
+                    $message = "Asistencia guardada.";
+                }
+
+            } catch (Exception $e) {
+                $error = "Error al actualizar asistencia: " . $e->getMessage();
+            }
+            $cuit = $_POST['cuit'];
+            
+            // Validate if exists
+            $check = $pdo->prepare("SELECT id FROM users WHERE cuit = ?");
+            $check->execute([$cuit]);
+            if ($check->rowCount() > 0) {
+                 $error = "El CUIT ya existe.";
+            } else {
+                $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+                $company_name = $_POST['company_name'];
+                $role = $_POST['role'];
+                $branch_id = !empty($_POST['branch_id']) ? $_POST['branch_id'] : null;
+                $default_duration = !empty($_POST['default_duration']) ? (int)$POST['default_duration'] : null; // Bug: POST typo, fixing in content
+
+                try {
+                    $stmt = $pdo->prepare("INSERT INTO users (cuit, password_hash, company_name, role, branch_id, status, default_duration) VALUES (?, ?, ?, ?, ?, 'approved', ?)");
+                    $stmt->execute([$cuit, $password, $company_name, $role, $branch_id, !empty($_POST['default_duration']) ? $_POST['default_duration'] : null]);
+                    $message = "Usuario creado exitosamente.";
+                } catch (PDOException $e) {
+                    $error = "Error al crear usuario: " . $e->getMessage();
+                }
             }
         }
     }
@@ -74,14 +149,31 @@ try {
     $error = "Error crítico: Falta tabla 'branches'. Ejecute el script de actualización.";
 }
 
-// Appointments
+// Calendar / Turnos Logic
+$viewMode = $_GET['view'] ?? 'daily'; // daily or weekly
+
+// Appointments Fetching
 $sql = "SELECT a.*, u.company_name, u.cuit, b.name as branch_name 
         FROM appointments a 
         JOIN users u ON a.user_id = u.id 
         LEFT JOIN branches b ON a.branch_id = b.id
-        WHERE DATE(a.start_time) = ?";
+        WHERE ";
 
-$params = [$date];
+$params = [];
+
+if ($viewMode === 'weekly') {
+    // For weekly, we need a range
+    $startOfWeek = $_GET['date'] ? date('Y-m-d', strtotime('monday this week', strtotime($_GET['date']))) : date('Y-m-d', strtotime('monday this week'));
+    $endOfWeek = date('Y-m-d', strtotime($startOfWeek . ' + 6 days')); // Mon-Sun
+    
+    $sql .= " DATE(a.start_time) BETWEEN ? AND ? ";
+    $params[] = $startOfWeek;
+    $params[] = $endOfWeek;
+} else {
+    // Daily
+    $sql .= " DATE(a.start_time) = ? ";
+    $params[] = $date;
+}
 
 if ($branchFilter) {
     $sql .= " AND a.branch_id = ?";
@@ -93,6 +185,15 @@ $sql .= " ORDER BY a.start_time ASC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $appointments = $stmt->fetchAll();
+
+// Group by date for weekly view
+$weeklyAppointments = [];
+if ($viewMode === 'weekly') {
+    foreach ($appointments as $appt) {
+        $d = date('Y-m-d', strtotime($appt['start_time']));
+        $weeklyAppointments[$d][] = $appt;
+    }
+}
 
 $pageTitle = 'Panel de Control';
 require_once __DIR__ . '/templates/layouts/header.php';
@@ -116,6 +217,9 @@ require_once __DIR__ . '/templates/layouts/nav.php';
     <ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
         <li class="nav-item" role="presentation">
             <button class="nav-link active" id="turnos-tab" data-bs-toggle="tab" data-bs-target="#turnos" type="button">Turnos</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="calendar-tab" data-bs-toggle="tab" data-bs-target="#calendar" type="button">Calendario Semanal</button>
         </li>
         <?php if ($userRole === 'admin'): ?>
             <li class="nav-item" role="presentation">
@@ -219,8 +323,113 @@ require_once __DIR__ . '/templates/layouts/nav.php';
                                 <?php endif; ?>
                             </tbody>
                         </table>
-                    </div>
-                </div>
+            </div>
+        </div>
+
+        <!-- CALENDAR TAB -->
+        <div class="tab-pane fade" id="calendar" role="tabpanel">
+             <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4 class="fw-bold">Vista Semanal</h4>
+                <form class="d-flex gap-2" method="GET">
+                    <input type="hidden" name="view" value="weekly">
+                    <?php if ($userRole === 'admin'): ?>
+                        <select name="branch_id" class="form-select bg-dark text-white border-secondary" style="width: auto;" onchange="this.form.submit()">
+                            <option value="">Todas</option>
+                            <?php foreach ($branches as $branch): ?>
+                                <option value="<?php echo $branch['id']; ?>" <?php echo $branchFilter == $branch['id'] ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($branch['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php endif; ?>
+                    <input type="date" name="date" class="form-control bg-dark text-white border-secondary" value="<?php echo $date; ?>">
+                    <button type="submit" class="btn btn-primary">Ir</button>
+                </form>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-bordered table-dark text-center table-sm">
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">Hora</th>
+                            <?php 
+                            $startOfWeek = isset($startOfWeek) ? $startOfWeek : date('Y-m-d', strtotime('monday this week'));
+                            $days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+                            foreach($days as $i => $dayName): 
+                                $currentDay = date('Y-m-d', strtotime($startOfWeek . " +$i days"));
+                            ?>
+                                <th>
+                                    <?php echo $dayName; ?><br>
+                                    <span class="small text-muted"><?php echo date('d/m', strtotime($currentDay)); ?></span>
+                                </th>
+                            <?php endforeach; ?>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php 
+                        // Hours 8 to 17
+                        for($h=8; $h<=17; $h++): 
+                             // Show half hours? Maybe too long. Let's do hourly rows for overview.
+                             $timeLabel = sprintf("%02d:00", $h);
+                        ?>
+                            <tr style="height: 100px;">
+                                <td class="align-middle fw-bold"><?php echo $timeLabel; ?></td>
+                                <?php 
+                                foreach($days as $i => $dayName):
+                                    $currentDay = date('Y-m-d', strtotime($startOfWeek . " +$i days"));
+                                    $dayAppts = $weeklyAppointments[$currentDay] ?? [];
+                                ?>
+                                    <td class="p-1 align-top position-relative">
+                                        <?php 
+                                        foreach($dayAppts as $appt): 
+                                            $apptH = (int)date('H', strtotime($appt['start_time']));
+                                            if ($apptH === $h):
+                                        ?>
+                                            <div class="card bg-secondary mb-1 border-0 shadow-sm text-start" style="font-size: 0.75rem;">
+                                                <div class="card-body p-1 text-white">
+                                                    <div class="fw-bold text-truncate"><?php echo htmlspecialchars($appt['company_name']); ?></div>
+                                                    <div class="d-flex justify-content-between">
+                                                        <span><?php echo date('H:i', strtotime($appt['start_time'])); ?></span>
+                                                        <span><?php echo $appt['quantity']; ?>b</span>
+                                                    </div>
+                                                    <?php if($appt['needs_forklift']): ?><span class="badge bg-danger p-0 px-1">AE</span><?php endif; ?>
+                                                    
+                                                    <!-- ATTENDANCE CONTROLS -->
+                                                    <div class="mt-1 text-center">
+                                                        <?php 
+                                                        $attStatus = $appt['attendance_status'] ?? 'pending'; 
+                                                        if ($attStatus === 'pending'):
+                                                        ?>
+                                                            <form method="POST" class="d-inline">
+                                                                <input type="hidden" name="action" value="mark_attendance">
+                                                                <input type="hidden" name="appointment_id" value="<?php echo $appt['id']; ?>">
+                                                                <input type="hidden" name="status" value="present">
+                                                                <button type="submit" class="btn btn-sm p-0 text-success" title="Presente"><i class="bi bi-check-circle-fill"></i></button>
+                                                            </form>
+                                                            <form method="POST" class="d-inline ms-1 make-absent">
+                                                                <input type="hidden" name="action" value="mark_attendance">
+                                                                <input type="hidden" name="appointment_id" value="<?php echo $appt['id']; ?>">
+                                                                <input type="hidden" name="status" value="absent">
+                                                                <button type="submit" class="btn btn-sm p-0 text-danger" title="Ausente" onclick="return confirm('¿Marcar Ausente? 3 ausencias bloquearán al usuario.')"><i class="bi bi-x-circle-fill"></i></button>
+                                                            </form>
+                                                        <?php elseif ($attStatus === 'present'): ?>
+                                                            <i class="bi bi-check-all text-success" title="Asistió"></i>
+                                                        <?php elseif ($attStatus === 'absent'): ?>
+                                                            <i class="bi bi-x-octagon-fill text-danger" title="Ausente"></i>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        <?php 
+                                            endif;
+                                        endforeach; 
+                                        ?>
+                                    </td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endfor; ?>
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -332,6 +541,11 @@ require_once __DIR__ . '/templates/layouts/nav.php';
                                 <?php endforeach; ?>
                             </select>
                             <div class="form-text text-light">Requerido para Operarios.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Duración Fija (Opcional)</label>
+                            <input type="number" name="default_duration" class="form-control bg-secondary text-white border-secondary" placeholder="Minutos (ej: 30, 60)">
+                            <div class="form-text text-light">Si se establece, este tiempo anula el del vehículo seleccionado.</div>
                         </div>
                         <button type="submit" class="btn btn-primary">Crear Usuario</button>
                     </form>

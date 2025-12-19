@@ -71,6 +71,11 @@ $user = Auth::user();
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link px-3" href="reports.php">
+                                <i class="bi bi-bar-chart me-1"></i> Reportes
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link px-3" href="admin.php?view=operator">
                                 <i class="bi bi-eye me-1"></i> Vista Planta
                             </a>
@@ -96,12 +101,15 @@ $user = Auth::user();
                                 <?php echo htmlspecialchars($user['name']); ?>
                             </span>
                             
-                            <!-- Logout Button -->
-                            <a href="logout.php" 
-                               class="btn btn-light border btn-sm ms-2" 
-                               title="Cerrar Sesión">
-                                <i class="bi bi-box-arrow-right text-danger"></i>
+                            <!-- User Dropdown Toggle -->
+                            <a class="btn btn-light border btn-sm ms-2 dropdown-toggle" href="#" role="button" id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-person-circle text-primary"></i>
                             </a>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
+                                <li><a class="dropdown-item" href="profile.php"><i class="bi bi-person me-2"></i>Mi Perfil</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item text-danger" href="logout.php"><i class="bi bi-box-arrow-right me-2"></i>Cerrar Sesión</a></li>
+                            </ul>
                         </div>
                     </li>
                     

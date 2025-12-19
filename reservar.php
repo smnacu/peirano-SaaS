@@ -79,14 +79,31 @@ try {
 }
 
 // =====================================================
-// LOAD BRANCHES
+// LOAD BRANCHES & VEHICLES
 // =====================================================
 
 $branches = [];
+$vehicleTypes = [];
 try {
     $branches = $pdo->query("SELECT * FROM branches ORDER BY name")->fetchAll();
+    // Try fetch vehicles, fallback to defaults if table missing (during update transition)
+    try {
+        $vehicleTypes = $pdo->query("SELECT * FROM vehicle_types WHERE active = 1 ORDER BY name")->fetchAll();
+    } catch (PDOException $e) {
+        // Table might not exist yet if script didn't run. Fallback array.
+    }
 } catch (PDOException $e) {
     $error = "Error crítico: La base de datos no está actualizada (Falta tabla 'branches'). Por favor contacte al administrador.";
+}
+
+// Fallback vehicles if empty
+if (empty($vehicleTypes)) {
+    $vehicleTypes = [
+        ['name' => 'Utilitario / Camioneta', 'block_minutes' => 30],
+        ['name' => 'Chasis', 'block_minutes' => 60],
+        ['name' => 'Balancín', 'block_minutes' => 60],
+        ['name' => 'Semi / Acoplado', 'block_minutes' => 60]
+    ];
 }
 
 // =====================================================
@@ -217,21 +234,22 @@ require_once __DIR__ . '/templates/layouts/nav.php';
                     <label class="form-label fw-bold text-uppercase small text-muted mb-2">Vehículo</label>
                     <div class="row g-3 mb-4">
                         <?php 
-                        $vehicles = [
-                            'Utilitario' => 'Utilitario / Camioneta',
-                            'Chasis' => 'Chasis',
-                            'Balancin' => 'Balancín',
-                            'Semi_Acoplado' => 'Semi / Acoplado'
-                        ];
-                        foreach ($vehicles as $val => $label): 
+                        foreach ($vehicleTypes as $vt): 
+                            $val = $vt['name']; // Using name as value for now to match DB schema history
+                            $label = $vt['name'];
+                            $duration = $vt['block_minutes'];
                         ?>
                             <div class="col-md-6">
                                 <input type="radio" class="btn-check" name="vehicle_type" 
-                                       id="v_<?php echo $val; ?>" value="<?php echo $val; ?>" required
+                                       id="v_<?php echo htmlspecialchars($val); ?>" 
+                                       value="<?php echo htmlspecialchars($val); ?>" required
                                        <?php echo ($defaults['vehicle'] === $val) ? 'checked' : ''; ?>>
                                 <label class="card p-3 d-flex justify-content-between align-items-center cursor-pointer h-100" 
-                                       for="v_<?php echo $val; ?>">
-                                    <span class="fw-medium"><?php echo $label; ?></span>
+                                       for="v_<?php echo htmlspecialchars($val); ?>">
+                                    <div>
+                                        <span class="fw-medium d-block"><?php echo htmlspecialchars($label); ?></span>
+                                        <small class="text-muted"><?php echo $duration; ?> min</small>
+                                    </div>
                                     <i class="bi bi-truck text-primary fs-5"></i>
                                 </label>
                             </div>

@@ -16,6 +16,28 @@ body {
     color: var(--text-main);
 }
 
+/* Mobile Table Fixes */
+@media (max-width: 768px) {
+    .table-responsive {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Make weekly calendar cards stack if needed or allow scroll */
+    .calendar-grid {
+        display: block; /* Fallback */
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+    .calendar-col {
+        display: inline-block;
+        width: 85vw; /* Show one day almost full width */
+        white-space: normal;
+        vertical-align: top;
+        margin-right: 10px;
+    }
+}
+
 h1, h2, h3, h4, h5, .navbar-brand {
     font-family: 'Red Hat Display', sans-serif;
 }

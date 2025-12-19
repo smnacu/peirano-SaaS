@@ -16,13 +16,34 @@ class EmailService
     /**
      * Send a generic HTML email
      */
+    require_once __DIR__ . '/SimpleSMTP.php';
+    require_once __DIR__ . '/IntegrationService.php';
+
+    /**
+     * Send a generic HTML email
+     */
     public function send(string $to, string $subject, string $body): bool
     {
+        $integrationService = new \IntegrationService();
+        $config = $integrationService->getIntegrationConfig();
+
+        $fromName = $config['smtp_from_name'] ?: brand('name');
+
+        if ($config['smtp_enabled'] === '1') {
+             $smtp = new \SimpleSMTP(
+                 $config['smtp_host'],
+                 (int)$config['smtp_port'],
+                 $config['smtp_user'],
+                 $config['smtp_pass']
+             );
+             return $smtp->send($config['smtp_user'], $fromName, $to, $subject, $this->wrapTemplate($body));
+        }
+
+        // Fallback or Basic Mail
         $headers = "MIME-Version: 1.0\r\n";
         $headers .= "Content-type:text/html;charset=UTF-8\r\n";
         
         // Dynamic sender from branding
-        $fromName = brand('name');
         $fromEmail = defined('SMTP_USER') ? SMTP_USER : 'noreply@' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
         $headers .= "From: {$fromName} <{$fromEmail}>\r\n";
         $headers .= "Reply-To: {$fromEmail}\r\n";
@@ -63,6 +84,35 @@ class EmailService
                 $subject = "⏳ Solicitud Recibida - {$companyName}";
                 $msg = "Hola <strong>{$userName}</strong>,<br><br>
                         Recibimos tu solicitud de turno fijo. La administración la revisará y te avisará por este medio cuando se apruebe.";
+                break;
+
+            case 'approved':
+                $subject = "✅ Cuenta Aprobada - {$companyName}";
+                $msg = "Hola <strong>{$userName}</strong>,<br><br>
+                        Tu cuenta ha sido aprobada. Ya podés ingresar al sistema y solicitar turnos.<br>
+                        <a href='" . BASE_URL . "'>Ir al Sistema</a>";
+                break;
+
+            case 'blocked':
+                $subject = "⛔ Cuenta Suspendida - {$companyName}";
+                $msg = "Hola <strong>{$userName}</strong>,<br><br>
+                        Detectamos 3 inasistencias consecutivas a tus turnos reservados. <br>
+                        Tu cuenta ha sido suspendida temporalmente.<br><br>
+                        Por favor, comunicate con la administración para regularizar tu situación.";
+                break;
+
+            case 'reminder':
+                $subject = "⏰ Recordatorio de Turno - {$companyName}";
+                $msg = "Hola <strong>{$userName}</strong>,<br><br>
+                        Te recordamos que tenés un turno reservado para mañana <strong>{$dateFormatted}</strong>.<br>
+                        Por favor, recordá asistir puntual o cancelar si no podés venir.";
+                break;
+
+            case 'cancelled':
+                $subject = "❌ Turno Cancelado - {$companyName}";
+                $msg = "Hola <strong>{$userName}</strong>,<br><br>
+                        Tu turno para el <strong>{$dateFormatted}</strong> ha sido cancelado exitosamente.<br>
+                        Si fue un error, por favor reservá nuevamente en el sistema.";
                 break;
         }
 
