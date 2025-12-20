@@ -11,7 +11,8 @@ SET time_zone = "+00:00";
 -- Table: `branches` (Sucursales)
 --
 
-CREATE TABLE IF NOT EXISTS `branches` (
+DROP TABLE IF EXISTS `branches`;
+CREATE TABLE `branches` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(100) NOT NULL,
   `address` varchar(255) DEFAULT NULL,
@@ -22,8 +23,7 @@ CREATE TABLE IF NOT EXISTS `branches` (
 
 INSERT INTO `branches` (`id`, `name`, `address`, `capacity_per_slot`, `active`) VALUES
 (1, 'Planta Principal', 'Calle Ficticia 123', 3, 1),
-(2, 'Depósito Secundario', 'Av. Industrial 456', 2, 1)
-ON DUPLICATE KEY UPDATE name=name;
+(2, 'Depósito Secundario', 'Av. Industrial 456', 2, 1);
 
 -- --------------------------------------------------------
 
@@ -31,7 +31,8 @@ ON DUPLICATE KEY UPDATE name=name;
 -- Table: `users` (Usuarios)
 --
 
-CREATE TABLE IF NOT EXISTS `users` (
+DROP TABLE IF EXISTS `users`;
+CREATE TABLE `users` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `cuit` varchar(20) NOT NULL,
   `email` varchar(255) DEFAULT NULL,
@@ -55,8 +56,7 @@ CREATE TABLE IF NOT EXISTS `users` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 INSERT INTO `users` (`cuit`, `password_hash`, `company_name`, `role`, `status`, `email_verified`) VALUES
-('20111111112', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Peirano Admin', 'admin', 'approved', 1)
-ON DUPLICATE KEY UPDATE company_name=company_name;
+('20111111112', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Peirano Admin', 'admin', 'approved', 1);
 
 -- --------------------------------------------------------
 
@@ -64,7 +64,8 @@ ON DUPLICATE KEY UPDATE company_name=company_name;
 -- Table: `vehicle_types`
 --
 
-CREATE TABLE IF NOT EXISTS `vehicle_types` (
+DROP TABLE IF EXISTS `vehicle_types`;
+CREATE TABLE `vehicle_types` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(50) NOT NULL,
   `block_minutes` int(11) NOT NULL DEFAULT 60,
@@ -77,8 +78,7 @@ INSERT INTO `vehicle_types` (`name`, `block_minutes`, `real_minutes`) VALUES
 ('Utilitario / Camioneta', 30, 25),
 ('Chasis', 60, 55),
 ('Balancín', 60, 55),
-('Semi / Acoplado', 60, 55)
-ON DUPLICATE KEY UPDATE name=name;
+('Semi / Acoplado', 60, 55);
 
 -- --------------------------------------------------------
 
@@ -86,7 +86,8 @@ ON DUPLICATE KEY UPDATE name=name;
 -- Table: `appointments` (Turnos/Citas)
 --
 
-CREATE TABLE IF NOT EXISTS `appointments` (
+DROP TABLE IF EXISTS `appointments`;
+CREATE TABLE `appointments` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `user_id` int(11) NOT NULL,
   `branch_id` int(11) NOT NULL,
@@ -119,7 +120,8 @@ CREATE TABLE IF NOT EXISTS `appointments` (
 -- Table: `system_settings` (Configuraciones)
 --
 
-CREATE TABLE IF NOT EXISTS `system_settings` (
+DROP TABLE IF EXISTS `system_settings`;
+CREATE TABLE `system_settings` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `setting_key` varchar(50) NOT NULL,
   `setting_value` text DEFAULT NULL,
