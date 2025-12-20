@@ -5,14 +5,12 @@ require_once __DIR__ . '/src/Database.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/Utils.php';
 
-// Verificar sesión y rol
 Auth::requireRole(['admin', 'operator']);
 
 $pdo = Database::connect();
 $message = '';
 $error = '';
 
-// Handle Actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Utils::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
         $error = "Error de seguridad (CSRF).";
@@ -21,14 +19,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $userId = $_POST['user_id'];
             $duration = $_POST['default_duration'];
             
-            // Get user email and company name for notification
             $stmt = $pdo->prepare("SELECT company_name, email FROM users WHERE id = ?");
             $stmt->execute([$userId]);
             $uData = $stmt->fetch();
 
             $stmt = $pdo->prepare("UPDATE users SET status = 'approved', default_duration = ? WHERE id = ?");
             if ($stmt->execute([$duration, $userId])) {
-                // Notification
                 if ($uData && !empty($uData['email'])) {
                     require_once __DIR__ . '/src/Services/EmailService.php';
                     (new EmailService())->sendStatusUpdate($uData['email'], $uData['company_name'], 'approved', date('Y-m-d H:i:s'));
@@ -42,7 +38,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($_POST['action'] === 'reject_user' && $_SESSION['user']['role'] === 'admin') {
             $userId = $_POST['user_id'];
             
-            // Get user email and company name for notification
             $stmt = $pdo->prepare("SELECT company_name, email FROM users WHERE id = ?");
             $stmt->execute([$userId]);
             $uData = $stmt->fetch();
@@ -55,32 +50,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } elseif ($_POST['action'] === 'mark_attendance') {
             $apptId = $_POST['appointment_id'];
-            $status = $_POST['status']; // 'present' or 'absent'
+            $status = $_POST['status'];
             
             try {
-                // 1. Update Appointment
                 $stmt = $pdo->prepare("UPDATE appointments SET attendance_status = ? WHERE id = ?");
                 $stmt->execute([$status, $apptId]);
 
-                // 2. Logic: If 'absent', check last 3 appointments for this user
                 if ($status === 'absent') {
-                    // Get User ID
                     $stmt = $pdo->prepare("SELECT user_id FROM appointments WHERE id = ?");
                     $stmt->execute([$apptId]);
                     $uid = $stmt->fetchColumn();
 
                     if ($uid) {
-                         // Check last 3 finished appointments
                          $stmt = $pdo->prepare("SELECT attendance_status FROM appointments WHERE user_id = ? AND attendance_status != 'pending' ORDER BY start_time DESC LIMIT 3");
                          $stmt->execute([$uid]);
                          $history = $stmt->fetchAll(PDO::FETCH_COLUMN);
                          
-                         // If 3 recorded, and all are absent
                          if (count($history) === 3 && count(array_unique($history)) === 1 && $history[0] === 'absent') {
-                             // BLOCK USER
                              $pdo->prepare("UPDATE users SET status = 'rejected' WHERE id = ?")->execute([$uid]);
                              
-                             // Notify
                              $stmt = $pdo->prepare("SELECT company_name, email FROM users WHERE id = ?");
                              $stmt->execute([$uid]);
                              $uData = $stmt->fetch();
@@ -101,9 +89,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (Exception $e) {
                 $error = "Error al actualizar asistencia: " . $e->getMessage();
             }
+        } elseif ($_POST['action'] === 'create_user' && $_SESSION['user']['role'] === 'admin') {
             $cuit = $_POST['cuit'];
             
-            // Validate if exists
             $check = $pdo->prepare("SELECT id FROM users WHERE cuit = ?");
             $check->execute([$cuit]);
             if ($check->rowCount() > 0) {
@@ -113,11 +101,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $company_name = $_POST['company_name'];
                 $role = $_POST['role'];
                 $branch_id = !empty($_POST['branch_id']) ? $_POST['branch_id'] : null;
-                $default_duration = !empty($_POST['default_duration']) ? (int)$POST['default_duration'] : null; // Bug: POST typo, fixing in content
+                $default_duration = !empty($_POST['default_duration']) ? (int)$_POST['default_duration'] : null;
 
                 try {
                     $stmt = $pdo->prepare("INSERT INTO users (cuit, password_hash, company_name, role, branch_id, status, default_duration) VALUES (?, ?, ?, ?, ?, 'approved', ?)");
-                    $stmt->execute([$cuit, $password, $company_name, $role, $branch_id, !empty($_POST['default_duration']) ? $_POST['default_duration'] : null]);
+                    $stmt->execute([$cuit, $password, $company_name, $role, $branch_id, $default_duration]);
                     $message = "Usuario creado exitosamente.";
                 } catch (PDOException $e) {
                     $error = "Error al crear usuario: " . $e->getMessage();
@@ -127,32 +115,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch Data
 $date = $_GET['date'] ?? date('Y-m-d');
-// Nota: Auth guarda user data en $_SESSION['user']
 $userRole = $_SESSION['user']['role'];
 $userBranch = $_SESSION['user']['branch_id'];
 
 $branchFilter = $_GET['branch_id'] ?? ($userRole === 'operator' ? $userBranch : '');
 
-// Pending Users (for Authorizations)
 $pendingUsers = [];
 if ($userRole === 'admin') {
     $pendingUsers = $pdo->query("SELECT * FROM users WHERE status = 'pending'")->fetchAll();
 }
 
-// Branches
 $branches = [];
 try {
     $branches = $pdo->query("SELECT * FROM branches")->fetchAll();
-} catch (PDOException $e) {
-    $error = "Error crítico: Falta tabla 'branches'. Ejecute el script de actualización.";
-}
+} catch (PDOException $e) {}
 
-// Calendar / Turnos Logic
-$viewMode = $_GET['view'] ?? 'daily'; // daily or weekly
+$viewMode = $_GET['view'] ?? 'daily';
 
-// Appointments Fetching
 $sql = "SELECT a.*, u.company_name, u.cuit, b.name as branch_name 
         FROM appointments a 
         JOIN users u ON a.user_id = u.id 
@@ -162,15 +142,13 @@ $sql = "SELECT a.*, u.company_name, u.cuit, b.name as branch_name
 $params = [];
 
 if ($viewMode === 'weekly') {
-    // For weekly, we need a range
     $startOfWeek = $_GET['date'] ? date('Y-m-d', strtotime('monday this week', strtotime($_GET['date']))) : date('Y-m-d', strtotime('monday this week'));
-    $endOfWeek = date('Y-m-d', strtotime($startOfWeek . ' + 6 days')); // Mon-Sun
+    $endOfWeek = date('Y-m-d', strtotime($startOfWeek . ' + 6 days'));
     
     $sql .= " DATE(a.start_time) BETWEEN ? AND ? ";
     $params[] = $startOfWeek;
     $params[] = $endOfWeek;
 } else {
-    // Daily
     $sql .= " DATE(a.start_time) = ? ";
     $params[] = $date;
 }
@@ -186,7 +164,6 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $appointments = $stmt->fetchAll();
 
-// Group by date for weekly view
 $weeklyAppointments = [];
 if ($viewMode === 'weekly') {
     foreach ($appointments as $appt) {
@@ -367,9 +344,7 @@ require_once __DIR__ . '/templates/layouts/nav.php';
                     </thead>
                     <tbody>
                         <?php 
-                        // Hours 8 to 17
                         for($h=8; $h<=17; $h++): 
-                             // Show half hours? Maybe too long. Let's do hourly rows for overview.
                              $timeLabel = sprintf("%02d:00", $h);
                         ?>
                             <tr style="height: 100px;">
@@ -394,7 +369,6 @@ require_once __DIR__ . '/templates/layouts/nav.php';
                                                     </div>
                                                     <?php if($appt['needs_forklift']): ?><span class="badge bg-danger p-0 px-1">AE</span><?php endif; ?>
                                                     
-                                                    <!-- ATTENDANCE CONTROLS -->
                                                     <div class="mt-1 text-center">
                                                         <?php 
                                                         $attStatus = $appt['attendance_status'] ?? 'pending'; 
@@ -556,7 +530,6 @@ require_once __DIR__ . '/templates/layouts/nav.php';
 </div>
 
 <script>
-    // Toggle branch select based on role
     const roleSelect = document.getElementById('roleSelect');
     const branchDiv = document.getElementById('branchDiv');
     if (roleSelect) {

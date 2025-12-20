@@ -1,11 +1,4 @@
 <?php
-/**
- * Login Page - White-Label SaaS
- * Entry point and authentication for the dock scheduling system.
- * 
- * @package WhiteLabel\Controllers
- */
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/config/config.php';
@@ -13,15 +6,15 @@ require_once __DIR__ . '/config/branding.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/Utils.php';
 
-// If already logged in, redirect based on role
 if (Auth::check()) {
     $role = $_SESSION['user']['role'] ?? 'provider';
     Utils::redirect(in_array($role, ['admin', 'operator']) ? 'admin.php' : 'reservar.php');
-$error = '';
-$show2FA = false; // Flag to control which form is displayed
-$auth = new Auth(); // Instantiate Auth class early
+}
 
-// Handle Login POST
+$error = '';
+$show2FA = false;
+$auth = new Auth();
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action']) && $_POST['action'] === 'login') {
         if (!Utils::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -33,17 +26,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $loginResult = $auth->login($cuit, $password);
             
             if ($loginResult === true) {
-                // Direct success
                 Auth::redirectAfterLogin();
             } elseif ($loginResult === '2fa_required') {
-                // Trigger 2FA View
                 $show2FA = true;
             } else {
                 $error = $loginResult;
             }
         }
     } elseif (isset($_POST['action']) && $_POST['action'] === 'verify_2fa') {
-        // Handle 2FA Verification
         if (!Utils::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $error = "Token de seguridad inválido.";
         } else {
@@ -52,21 +42,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 Auth::redirectAfterLogin();
             } else {
                 $error = "Código de verificación incorrecto.";
-                $show2FA = true; // Stay on 2FA form
+                $show2FA = true;
             }
         }
     }
 }
 
-// Redirect if already logged in (and not pending 2fa)
 if (Auth::check() && !isset($_SESSION['2fa_pending_user_id'])) {
     Auth::redirectAfterLogin();
 }
 
-// Load View
-// If $show2FA is true, we show 2FA form. Else normal login.
 $pageTitle = 'Login';
-$hideNav = true; // Hide navigation for login page
+$hideNav = true;
 require_once __DIR__ . '/templates/layouts/header.php';
 ?>
 
@@ -88,7 +75,6 @@ require_once __DIR__ . '/templates/layouts/header.php';
             <?php endif; ?>
 
             <?php if (isset($show2FA) && $show2FA): ?>
-                <!-- 2FA FORM -->
                 <form method="POST">
                     <input type="hidden" name="action" value="verify_2fa">
                     <input type="hidden" name="csrf_token" value="<?php echo Utils::generateCsrfToken(); ?>">
@@ -104,7 +90,6 @@ require_once __DIR__ . '/templates/layouts/header.php';
                 </form>
 
             <?php else: ?>
-                <!-- LOGIN FORM -->
                 <form method="POST">
                     <input type="hidden" name="action" value="login">
                     <input type="hidden" name="csrf_token" value="<?php echo Utils::generateCsrfToken(); ?>">
@@ -135,7 +120,7 @@ require_once __DIR__ . '/templates/layouts/header.php';
         </div>
     </div>
     <div class="mt-4 text-center text-muted small">
-        &copy; <?php echo date('Y'); ?> <?php echo brand('name'); ?> - v2.1
+        &copy; <?php echo date('Y'); ?> <?php echo brand('name'); ?>
     </div>
 </div>
 

@@ -1,5 +1,5 @@
 -- Database Schema for Peirano SaaS
--- Run this in your MySQL/MariaDB database (e.g., in Ferozo/phpMyAdmin)
+-- Consolidated Version (Includes v2 and v3 updates)
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -20,10 +20,6 @@ CREATE TABLE IF NOT EXISTS `branches` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Insert Data: `branches`
---
-
 INSERT INTO `branches` (`id`, `name`, `address`, `capacity_per_slot`, `active`) VALUES
 (1, 'Planta Principal', 'Calle Ficticia 123', 3, 1),
 (2, 'Depósito Secundario', 'Av. Industrial 456', 2, 1)
@@ -37,27 +33,52 @@ ON DUPLICATE KEY UPDATE name=name;
 
 CREATE TABLE IF NOT EXISTS `users` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `cuit` varchar(20) NOT NULL COMMENT 'Used as Username',
+  `cuit` varchar(20) NOT NULL,
+  `email` varchar(255) DEFAULT NULL,
   `password_hash` varchar(255) NOT NULL,
+  `two_factor_secret` varchar(255) DEFAULT NULL,
+  `two_factor_enabled` tinyint(1) DEFAULT 0,
   `company_name` varchar(100) NOT NULL,
   `phone` varchar(50) DEFAULT NULL,
   `role` enum('client','provider','operator','admin') NOT NULL DEFAULT 'client',
+  `email_verified` tinyint(1) DEFAULT 1,
   `status` enum('pending','approved','rejected') DEFAULT 'pending',
-  `branch_id` int(11) DEFAULT NULL COMMENT 'For operators',
-  `default_duration` int(11) DEFAULT 60,
+  `branch_id` int(11) DEFAULT NULL,
+  `default_duration` int(11) DEFAULT NULL,
+  `remember_token` varchar(100) DEFAULT NULL,
+  `api_token` varchar(64) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `cuit` (`cuit`),
+  UNIQUE KEY `api_token` (`api_token`),
   KEY `branch_id` (`branch_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+INSERT INTO `users` (`cuit`, `password_hash`, `company_name`, `role`, `status`, `email_verified`) VALUES
+('20111111112', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Peirano Admin', 'admin', 'approved', 1)
+ON DUPLICATE KEY UPDATE company_name=company_name;
+
+-- --------------------------------------------------------
+
 --
--- Insert Data: Admin Default (Pass: Admin123)
+-- Table: `vehicle_types`
 --
 
-INSERT INTO `users` (`cuit`, `password_hash`, `company_name`, `role`, `status`) VALUES
-('20111111112', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Peirano Admin', 'admin', 'approved')
-ON DUPLICATE KEY UPDATE company_name=company_name;
+CREATE TABLE IF NOT EXISTS `vehicle_types` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(50) NOT NULL,
+  `block_minutes` int(11) NOT NULL DEFAULT 60,
+  `real_minutes` int(11) NOT NULL DEFAULT 55,
+  `active` tinyint(1) DEFAULT 1,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+INSERT INTO `vehicle_types` (`name`, `block_minutes`, `real_minutes`) VALUES
+('Utilitario / Camioneta', 30, 25),
+('Chasis', 60, 55),
+('Balancín', 60, 55),
+('Semi / Acoplado', 60, 55)
+ON DUPLICATE KEY UPDATE name=name;
 
 -- --------------------------------------------------------
 
@@ -81,12 +102,15 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   `needs_helper` tinyint(1) DEFAULT 0,
   `observations` text DEFAULT NULL,
   `status` enum('scheduled','completed','cancelled','no_show') DEFAULT 'scheduled',
-  `external_id` varchar(255) DEFAULT NULL COMMENT 'ID for Google/Outlook Sync',
+  `attendance_status` enum('pending','present','absent') DEFAULT 'pending',
+  `reminder_sent` tinyint(1) DEFAULT 0,
+  `external_id` varchar(255) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `user_id` (`user_id`),
   KEY `branch_id` (`branch_id`),
-  KEY `start_time` (`start_time`)
+  KEY `start_time` (`start_time`),
+  KEY `idx_user_attendance` (`user_id`, `attendance_status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
