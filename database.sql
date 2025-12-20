@@ -1,6 +1,7 @@
 -- Database Schema for Peirano SaaS
 -- Consolidated Version (Includes v2 and v3 updates)
 
+SET FOREIGN_KEY_CHECKS = 0;
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
 SET time_zone = "+00:00";
@@ -52,7 +53,8 @@ CREATE TABLE `users` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `cuit` (`cuit`),
   UNIQUE KEY `api_token` (`api_token`),
-  KEY `branch_id` (`branch_id`)
+  KEY `branch_id` (`branch_id`),
+  CONSTRAINT `users_ibfk_1` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 INSERT INTO `users` (`cuit`, `password_hash`, `company_name`, `role`, `status`, `email_verified`) VALUES
@@ -111,7 +113,9 @@ CREATE TABLE `appointments` (
   KEY `user_id` (`user_id`),
   KEY `branch_id` (`branch_id`),
   KEY `start_time` (`start_time`),
-  KEY `idx_user_attendance` (`user_id`, `attendance_status`)
+  KEY `idx_user_attendance` (`user_id`, `attendance_status`),
+  CONSTRAINT `appointments_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `appointments_ibfk_2` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -131,3 +135,4 @@ CREATE TABLE `system_settings` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 COMMIT;
+SET FOREIGN_KEY_CHECKS = 1;
